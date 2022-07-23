@@ -1,6 +1,20 @@
 # glcc22_align_utils
 
-## align_state_dict.py  对齐checkpoint的参数字典的工具
+## 对齐checkpoint的参数字典的工具 align_state_dict.py  
 - 1代表load的源码repo的checkpoint经过 各种map和删除增加等操作 之后的模型状态字典,2代表当前mmdet的模型的状态字典.
 - 这里主要的工作就是写上面这个 各种map和删除增加等操作, 比如, 对每个参数字典的key写映射的replace, 删除 bn 前的bias (dino源码是有的), 给pooling和bn加num_batch_tracked, 把91类参数映射为80类等操作
 - 不断修改这些操作的逻辑, 使1的状态字典的names能和2完全一致. names在这里写成json文件, 可以直接pycharm双击shift选择对比差异, 然后两侧加载两个文件, 这样做的好处是, 可以直接点上面的那个小铅笔来直接重新读两个文件, 而不需要每次都复制, 右键与剪切板对比这样麻烦.
+- 最后只要names完全一致, load能通过(打印出来unexpect_keys和missing_keys检查), 就可以直接获得匹配名称后的 mmdet checkpoint 啦
+- 这样的好处是, 完成对齐前这个脚本是用来对齐的工具, 完成对齐后是用来转换源码的checkpoint的工具. 在对齐训练的时候也可以拿来对齐初始化
+
+## mmdetection的coco想要像detr源码一样用91类作为num_classes时 coco.py datasetdevelop.py
+- 改mmdet里的coco.py, 让数据集能输出91类的标签
+- 如果算法使用的是focal loss, 在train的命令后加: `--options data.train.continuous_categories=False model.bbox_head.num_classes=91` 就可以啦
+- datasetdevelop.py 是用来检验这个参数好不好使
+
+## 制作小的coco子集 make_one_sample_coco.py 
+- 能做一个 一个样本的 coco ann, 需要给样本id
+- 能做一个 前n个样本的 coco ann, 需要给样本数
+
+## 对齐参数初始化 align_param_init.py
+- 开始我以为所有的参数初始化都能对齐来着, 其实应该直接加载ckpt就行了, 但对于一些源码中特地初始化的参数, 可以把后面的条件加上, 检查这些参数对齐也能避免最后结果不同是参数初始化的原因
