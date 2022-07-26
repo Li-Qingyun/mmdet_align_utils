@@ -63,8 +63,10 @@ class CocoDataset(CustomDataset):
     def __init__(self,
                  *args,
                  continuous_categories=True,
+                 filter_not_empty_gt=False,
                  **kwargs):
         self.continuous_categories = continuous_categories
+        self.filter_not_empty_gt = filter_not_empty_gt
         super(CocoDataset, self).__init__(*args, **kwargs)
     ####################### MODIFICATION ###################
 
@@ -157,6 +159,13 @@ class CocoDataset(CustomDataset):
         valid_img_ids = []
         for i, img_info in enumerate(self.data_infos):
             img_id = self.img_ids[i]
+            ####################### MODIFICATION ###################
+            if self.filter_not_empty_gt:
+                if img_id not in ids_in_cat:
+                    valid_inds.append(i)
+                    valid_img_ids.append(img_id)
+                continue
+            ####################### MODIFICATION ###################
             if self.filter_empty_gt and img_id not in ids_in_cat:
                 continue
             if min(img_info['width'], img_info['height']) >= min_size:
