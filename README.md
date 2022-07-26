@@ -11,6 +11,7 @@
 - 改mmdet里的coco.py, 让数据集能输出91类的标签
 - 如果算法使用的是focal loss, 在train的命令后加: `--options data.train.continuous_categories=False model.bbox_head.num_classes=91` 就可以啦
 - datasetdevelop.py 是用来检验这个参数好不好使
+- 220726 新增 filter_not_empty_gt 参数, 选择为True后, 会只筛选出不包含目标的样本. 用于在开发阶段debug没有目标的样本的情况. (在DINO中出现了没有目标时loss_dict缺少dn的几项, 导致触发分布式训练的assert)
 
 ## 制作小的coco子集 make_one_sample_coco.py 
 - 能做一个 一个样本的 coco ann, 需要给样本id
