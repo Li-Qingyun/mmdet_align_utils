@@ -99,6 +99,7 @@ class CocoDataset(CustomDataset):
                 else:
                     classes_.append('')
             self.CLASSES = tuple(classes_)
+            self.cat_ids = list(range(self.cat_ids[-1] + 1))
         ####################### MODIFICATION ###################
         self.img_ids = self.coco.get_img_ids()
         data_infos = []
