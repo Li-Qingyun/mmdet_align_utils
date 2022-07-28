@@ -20,4 +20,24 @@
 ## 对齐参数初始化 align_param_init.py
 - 开始我以为所有的参数初始化都能对齐来着, 其实应该直接加载ckpt就行了, 但对于一些源码中特地初始化的参数, 可以把后面的条件加上, 检查这些参数对齐也能避免最后结果不同是参数初始化的原因
 
-## 跳过数据预处理,将源码的数据保存下来用于在mmdet中加载  engine.py 是源码端修改示例, base.py是mmdet端修改示例
+## 跳过数据预处理,将源码的数据保存下来用于在mmdet中加载  engine.py 是源码端修改示例
+下面是 base.py是mmdet端修改示例
+```Python
+    def train_step(self, data, optimizer):
+        if False:
+            img_id = int(data['img_metas'][0]['ori_filename'][:-4])
+            data_origin_path = f'developing/data_origin/data_origin_id={img_id}.pth'
+            data_origin = torch.load(data_origin_path)
+            data_origin['img'] = data_origin['img'].cuda()
+            data_origin['gt_bboxes'][0] = data_origin['gt_bboxes'][0].cuda()
+            data_origin['gt_labels'][0] = data_origin['gt_labels'][0].cuda()
+            data.update(data_origin)
+
+        losses = self(**data)
+        loss, log_vars = self._parse_losses(losses)
+
+        outputs = dict(
+            loss=loss, log_vars=log_vars, num_samples=len(data['img_metas']))
+
+        return outputs
+```
