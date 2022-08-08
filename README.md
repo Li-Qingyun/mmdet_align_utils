@@ -1,5 +1,7 @@
 # glcc22_align_utils
 
+该 repo 是我在 glcc22 中进行项目开发时对齐模型精度所使用的脚本工具，目前在向 mmdet PR DINO算法，PR地址为：https://github.com/open-mmlab/mmdetection/pull/8362
+
 ## 对齐checkpoint的参数字典的工具 align_state_dict.py  
 - 1代表load的源码repo的checkpoint经过 各种map和删除增加等操作 之后的模型状态字典,2代表当前mmdet的模型的状态字典.
 - 这里主要的工作就是写上面这个 各种map和删除增加等操作, 比如, 对每个参数字典的key写映射的replace, 删除 bn 前的bias (dino源码是有的), 给pooling和bn加num_batch_tracked, 把91类参数映射为80类等操作
