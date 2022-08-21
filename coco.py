@@ -70,22 +70,11 @@ class CocoDataset(CustomDataset):
         super(CocoDataset, self).__init__(*args, **kwargs)
     ####################### MODIFICATION ###################
 
-    def load_annotations(self, ann_file):
-        """Load annotation from COCO style annotation file.
-
-        Args:
-            ann_file (str): Path of annotation file.
-
-        Returns:
-            list[dict]: Annotation info from COCO api.
-        """
-
-        self.coco = COCO(ann_file)
+    ####################### MODIFICATION ###################
+    def init_cat_ids(self):
         # The order of returned `cat_ids` will not
         # change with the order of the CLASSES
         self.cat_ids = self.coco.get_cat_ids(cat_names=self.CLASSES)
-
-        ####################### MODIFICATION ###################
         if self.continuous_categories:
             self.cat2label = {cat_id: i
                               for i, cat_id in enumerate(self.cat_ids)}
@@ -100,6 +89,21 @@ class CocoDataset(CustomDataset):
                     classes_.append('')
             self.CLASSES = tuple(classes_)
             self.cat_ids = list(range(self.cat_ids[-1] + 1))
+    ####################### MODIFICATION ###################
+
+    def load_annotations(self, ann_file):
+        """Load annotation from COCO style annotation file.
+
+        Args:
+            ann_file (str): Path of annotation file.
+
+        Returns:
+            list[dict]: Annotation info from COCO api.
+        """
+
+        self.coco = COCO(ann_file)
+        ####################### MODIFICATION ###################
+        self.init_cat_ids()
         ####################### MODIFICATION ###################
         self.img_ids = self.coco.get_img_ids()
         data_infos = []
@@ -669,8 +673,9 @@ class CocoDataset(CustomDataset):
                 raise KeyError(f'metric {metric} is not supported')
 
         coco_gt = self.coco
-        if self.continuous_categories:
-            self.cat_ids = coco_gt.get_cat_ids(cat_names=self.CLASSES)
+        ####################### MODIFICATION ###################
+        self.init_cat_ids()
+        ####################### MODIFICATION ###################
 
         result_files, tmp_dir = self.format_results(results, jsonfile_prefix)
         eval_results = self.evaluate_det_segm(results, result_files, coco_gt,
