@@ -1,22 +1,32 @@
-# repo: https://github.com/IDEACVR/DINO
+# original repo: https://github.com/IDEACVR/DINO
+import json
+from collections import OrderedDict
 
 import torch
-import json
+
 from mmcv import Config
 from mmcv.runner import save_checkpoint
 from mmdet.utils import replace_cfg_vals
 from mmdet.models import build_detector
 from mmdet.datasets import build_dataset, CocoDataset
-from collections import OrderedDict
+from mmdet.models.utils.ckpt_convert import swin_converter
 
 
-CKPT_IDX = 0
-CKPT_DIR = r'/home/lqy/Desktop/DINO/ckpts/'
-CFG_PATH_4SCALE = r'/home/lqy/Desktop/DINO_mmdet/configs' \
-                  r'/dino/dino_4scale_r50_16x2_12e_coco.py'
-CFG_PATH_5SCALE = r'/home/lqy/Desktop/DINO_mmdet/configs' \
-                  r'/dino/dino_5scale_r50_16x2_12e_coco.py'
+## Frequent settings
+CKPT_IDX = 9
+PIPELINE = dict(
+    delete_duplicated_prediction_head=True,  # for two-stage DeformDETR-like model
+    delete_bias_before_norm_in_neck=True,
+    # mapping_state_dict
+    add_num_batches_tracked=True,  # default to set 0
+    map_91_cls_to_80_cls=True
+)
+IS_ALIGNED = False
 
+
+## Infrequent settings
+USER_DIR = '/home/' + 'rs'
+CKPT_DIR = USER_DIR + r'/Desktop/DINO/ckpts/'
 ckpt_filenames = [
     'checkpoint0011_4scale.pth',
     'checkpoint0023_4scale.pth',
@@ -24,15 +34,29 @@ ckpt_filenames = [
     'checkpoint0011_5scale.pth',
     'checkpoint0022_5scale.pth',
     'checkpoint0031_5scale.pth',
-    'checkpoint_4scale_42seedinit.pth',
-    'checkpoint_5scale_42seedinit.pth',
-]
+    'checkpoint0011_4scale_swin.pth',
+    'checkpoint0029_4scale_swin.pth',
+    'checkpoint0011_5scale_swin.pth',
+    'checkpoint0027_5scale_swin.pth',
+    # 'checkpoint_4scale_42seedinit.pth',
+    # 'checkpoint_5scale_42seedinit.pth'
+    ]
+IS_INITED_CKPT = CKPT_IDX > 9
+file_path_list = [CKPT_DIR + filename for filename in ckpt_filenames]
 
-cfg_path = [
-    CFG_PATH_4SCALE, CFG_PATH_4SCALE, CFG_PATH_4SCALE,
-    CFG_PATH_5SCALE, CFG_PATH_5SCALE, CFG_PATH_5SCALE,
-    CFG_PATH_4SCALE, CFG_PATH_5SCALE
-]
+NUM_SCALE = int(ckpt_filenames[CKPT_IDX][
+                ckpt_filenames[CKPT_IDX].index('scale') - 1])
+BATCH = '8x2' if NUM_SCALE <= 4 else '16x1'
+BACKBONE = 'swin-l-p4-w12' if 'swin' in ckpt_filenames[CKPT_IDX] else 'r50'
+CFG_PATH = USER_DIR + r'/Desktop/DINO_mmdet/configs' \
+           rf'/dino/dino_{NUM_SCALE}scale_{BACKBONE}_{BATCH}_12e_coco.py'
+
+if IS_ALIGNED:
+    PIPELINE['delete_bias_before_norm_in_neck'] = False
+    PIPELINE['map_91_cls_to_80_cls'] = False
+    PIPELINE['map_label_embeddings_to_91_cls'] = True
+    tmp = CFG_PATH.split('/')
+    CFG_PATH = '/'.join(tmp[:-1]) + '/aligned_' + tmp[-1]
 
 
 def get_mapped_name(name: str):
@@ -46,7 +70,7 @@ def get_mapped_name(name: str):
         components = new_name.split('.')
         lid, sublid = components[-3:-1]
         components[-2] = 'gn' if sublid == '1' else 'conv'
-        if int(lid) < 3:
+        if int(lid) < NUM_SCALE - 1:
             components[0] = 'neck.convs'
         else:
             components[0] = 'neck.extra_convs'
@@ -121,15 +145,21 @@ def get_mapped_name(name: str):
     return new_name
 
 
-def map_cls(state_dict: OrderedDict, dataset: CocoDataset):
-    for lid in range(7):
-        l_name = f'bbox_head.cls_branches.{lid}.weight'
-        state_dict[l_name] = state_dict[l_name][dataset.cat_ids, :]
-        l_name = f'bbox_head.cls_branches.{lid}.bias'
-        state_dict[l_name] = state_dict[l_name][dataset.cat_ids]
-    l_name = 'bbox_head.label_embedding.weight'
-    label_embedding_indices = dataset.cat_ids
-    state_dict[l_name] = state_dict[l_name][label_embedding_indices, :]
+def map_cls(state_dict: OrderedDict, dataset: CocoDataset, num_classes):
+    if num_classes == 80:
+        for lid in range(7):
+            l_name = f'bbox_head.cls_branches.{lid}.weight'
+            state_dict[l_name] = state_dict[l_name][dataset.cat_ids, :]
+            l_name = f'bbox_head.cls_branches.{lid}.bias'
+            state_dict[l_name] = state_dict[l_name][dataset.cat_ids]
+        l_name = 'bbox_head.label_embedding.weight'
+        label_embedding_indices = dataset.cat_ids
+        state_dict[l_name] = state_dict[l_name][label_embedding_indices, :]
+    elif num_classes == 91:
+        l_name = 'bbox_head.label_embedding.weight'
+        state_dict[l_name] = state_dict[l_name][:-1, :]
+    else:
+        raise NotImplementedError
     return state_dict
 
 
@@ -179,38 +209,50 @@ def delete_bias_before_norm(state_dict: OrderedDict):
     return state_dict
 
 
-file_path_list = [CKPT_DIR + filename for filename in ckpt_filenames]
+if __name__ == '__main__':
+    # load and convert ckpt released in original repo
+    ckpt_1 = torch.load(file_path_list[CKPT_IDX])
+    model_1 = ckpt_1.get('model', ckpt_1.get('inited_model'))
+    if 'swin' in BACKBONE:
+        _len = len(model_1)
+        swin = {k[11:]: model_1.pop(k)
+                for k in list(model_1.keys()) if 'backbone.0.' in k}
+        swin = swin_converter(swin)
+        model_1.update(swin)
+        assert _len == len(model_1)
+    if PIPELINE['delete_duplicated_prediction_head']:
+        model_1 = delete_duplicated_items(model_1)
+    if PIPELINE['delete_bias_before_norm_in_neck']:
+        model_1 = delete_bias_before_norm(model_1)
+    model_1 = mapping_state_dict(model_1)
+    if PIPELINE['add_num_batches_tracked']:
+        model_1 = add_num_batches_tracked(model_1)
 
-ckpt_1 = torch.load(file_path_list[CKPT_IDX])
-model_1 = ckpt_1.get('model', ckpt_1.get('inited_model'))
-model_1 = delete_duplicated_items(model_1)
-# model_1 = delete_bias_before_norm(model_1)
-model_1 = mapping_state_dict(model_1)
-model_1 = add_num_batches_tracked(model_1)
+    # build model of our implementation with mmdet
+    cfg = replace_cfg_vals(Config.fromfile(CFG_PATH))
+    cfg.model.train_cfg = None
+    dino_mmdet = build_detector(cfg.model, test_cfg=cfg.get('test_cfg'))
+    dataset = build_dataset(cfg.data.test)
+    class_mapping = dataset.cat_ids
+    torch.save(class_mapping, r'./developing/class_mapping')
 
+    model_2 = dino_mmdet.state_dict()
+    if PIPELINE['map_91_cls_to_80_cls'] \
+            or PIPELINE.get('map_label_embeddings_to_91_cls', False):
+        model_1 = map_cls(model_1, dataset, cfg.model.bbox_head.num_classes)
 
-cfg = replace_cfg_vals(Config.fromfile(cfg_path[CKPT_IDX]))
-cfg.model.train_cfg = None
-dino_mmdet = build_detector(cfg.model, test_cfg=cfg.get('test_cfg'))
-dataset = build_dataset(cfg.data.test)
-class_mapping = dataset.cat_ids
-torch.save(class_mapping, r'./developing/class_mapping')
+    names_1 = sorted([name for name, _ in model_1.items()])
+    names_2 = sorted([name for name, _ in model_2.items()])
+    json.dump(names_2, open(r'./developing/names_2.json', 'w'), indent=0)
+    json.dump(names_1, open(r'./developing/names_1.json', 'w'), indent=0)
 
-
-model_2 = dino_mmdet.state_dict()
-model_1 = map_cls(model_1, dataset)
-
-
-names_1 = sorted([name for name, _ in model_1.items()])
-names_2 = sorted([name for name, _ in model_2.items()])
-
-
-json.dump(names_2, open(r'./developing/names_2.json', 'w'), indent=0)
-json.dump(names_1, open(r'./developing/names_1.json', 'w'), indent=0)
-
-
-# At last:
-print(dino_mmdet.load_state_dict(model_1, strict=False))
-save_checkpoint(dino_mmdet, f'./developing/{ckpt_filenames[CKPT_IDX][:-4]}_mmdet.pth',
-                # meta=dict(epoch=0, iter=0, )
-                )
+    # At last:
+    print(dino_mmdet.load_state_dict(model_1, strict=False))
+    save_path = f'./developing/' \
+                f'{"aligned_" if IS_ALIGNED else ""}' \
+                f'{ckpt_filenames[CKPT_IDX][:-4]}_mmdet.pth'
+    # save_checkpoint(dino_mmdet, save_path,
+    #                 meta=dict(epoch=0, iter=0, convert_pipeline=PIPELINE))
+    torch.save(dict(state_dict=model_1, meta=dict(
+        epoch=0, iter=0, convert_pipeline=PIPELINE)), save_path)
+    print(f'The converted ckpt has been saved at {save_path}')
